@@ -81,8 +81,7 @@ type CreateDataSource interface {
 type ORM interface {
 	services.Service
 
-	// ds is optional and to be removed after completing https://smartcontract-it.atlassian.net/browse/BCF-2978
-	CreateSpec(ctx context.Context, ds CreateDataSource, pipeline Pipeline, maxTaskTimeout models.Interval) (int32, error)
+	CreateSpec(ctx context.Context, pipeline Pipeline, maxTaskTimeout models.Interval) (int32, error)
 	CreateRun(ctx context.Context, run *Run) (err error)
 	InsertRun(ctx context.Context, run *Run) error
 	DeleteRun(ctx context.Context, id int64) error
@@ -191,14 +190,11 @@ func (o *orm) transact(ctx context.Context, fn func(*orm) error) error {
 	return sqlutil.Transact(ctx, o.withDataSource, o.ds, nil, fn)
 }
 
-func (o *orm) CreateSpec(ctx context.Context, ds CreateDataSource, pipeline Pipeline, maxTaskDuration models.Interval) (id int32, err error) {
+func (o *orm) CreateSpec(ctx context.Context, pipeline Pipeline, maxTaskDuration models.Interval) (id int32, err error) {
 	sql := `INSERT INTO pipeline_specs (dot_dag_source, max_task_duration, created_at)
 	VALUES ($1, $2, NOW())
 	RETURNING id;`
-	if ds == nil {
-		ds = o.ds
-	}
-	err = ds.GetContext(ctx, &id, sql, pipeline.Source, maxTaskDuration)
+	err = o.ds.GetContext(ctx, &id, sql, pipeline.Source, maxTaskDuration)
 	return id, errors.WithStack(err)
 }
 

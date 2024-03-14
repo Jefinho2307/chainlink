@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils"
 	"github.com/smartcontractkit/chainlink/v2/core/internal/testutils"
 	"github.com/smartcontractkit/chainlink/v2/core/services/pg"
@@ -39,8 +40,9 @@ func NewSqlxDB(t testing.TB) *sqlx.DB {
 	return db
 }
 
-func MustExec(t *testing.T, db *sqlx.DB, stmt string, args ...interface{}) {
-	require.NoError(t, utils.JustError(db.Exec(stmt, args...)))
+func MustExec(t *testing.T, ds sqlutil.DataSource, stmt string, args ...interface{}) {
+	ctx := testutils.Context(t)
+	require.NoError(t, utils.JustError(ds.ExecContext(ctx, stmt, args...)))
 }
 
 func MustSelect(t *testing.T, db *sqlx.DB, dest interface{}, stmt string, args ...interface{}) {

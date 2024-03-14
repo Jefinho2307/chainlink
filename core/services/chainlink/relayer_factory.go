@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/loop"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-cosmos/pkg/cosmos"
 	coscfg "github.com/smartcontractkit/chainlink-cosmos/pkg/cosmos/config"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana"
@@ -67,8 +67,7 @@ func (r *RelayerFactory) NewEVM(ctx context.Context, config EVMFactoryConfig) (m
 		}
 
 		relayerOpts := evmrelay.RelayerOpts{
-			DB:             ccOpts.SqlxDB,
-			DS:             ccOpts.DB,
+			DS:             ccOpts.DS,
 			QConfig:        ccOpts.AppConfig.Database(),
 			CSAETHKeystore: config.CSAETHKeystore,
 			MercuryPool:    r.MercuryPool,
@@ -238,7 +237,7 @@ func (r *RelayerFactory) NewStarkNet(ks keystore.StarkNet, chainCfgs config.TOML
 type CosmosFactoryConfig struct {
 	Keystore keystore.Cosmos
 	coscfg.TOMLConfigs
-	*sqlx.DB
+	DS sqlutil.DataSource
 	pg.QConfig
 }
 
@@ -250,8 +249,8 @@ func (c CosmosFactoryConfig) Validate() error {
 	if len(c.TOMLConfigs) == 0 {
 		err = errors.Join(err, fmt.Errorf("no CosmosConfigs provided"))
 	}
-	if c.DB == nil {
-		err = errors.Join(err, fmt.Errorf("nil DB"))
+	if c.DS == nil {
+		err = errors.Join(err, fmt.Errorf("nil DataStore"))
 	}
 	if c.QConfig == nil {
 		err = errors.Join(err, fmt.Errorf("nil QConfig"))
@@ -283,7 +282,7 @@ func (r *RelayerFactory) NewCosmos(config CosmosFactoryConfig) (map[relay.ID]Cos
 
 		opts := cosmos.ChainOpts{
 			Logger:   lggr,
-			DB:       config.DB,
+			DS:       config.DS,
 			KeyStore: loopKs,
 		}
 

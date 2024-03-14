@@ -80,13 +80,13 @@ func TestMigrate_0100_BootstrapConfigs(t *testing.T) {
 
 	pipelineORM := pipeline.NewORM(db, lggr, cfg.JobPipeline().MaxSuccessfulRuns())
 	ctx := testutils.Context(t)
-	pipelineID, err := pipelineORM.CreateSpec(ctx, nil, pipeline.Pipeline{}, 0)
+	pipelineID, err := pipelineORM.CreateSpec(ctx, pipeline.Pipeline{}, 0)
 	require.NoError(t, err)
-	pipelineID2, err := pipelineORM.CreateSpec(ctx, nil, pipeline.Pipeline{}, 0)
+	pipelineID2, err := pipelineORM.CreateSpec(ctx, pipeline.Pipeline{}, 0)
 	require.NoError(t, err)
-	nonBootstrapPipelineID, err := pipelineORM.CreateSpec(ctx, nil, pipeline.Pipeline{}, 0)
+	nonBootstrapPipelineID, err := pipelineORM.CreateSpec(ctx, pipeline.Pipeline{}, 0)
 	require.NoError(t, err)
-	newFormatBoostrapPipelineID2, err := pipelineORM.CreateSpec(ctx, nil, pipeline.Pipeline{}, 0)
+	newFormatBoostrapPipelineID2, err := pipelineORM.CreateSpec(ctx, pipeline.Pipeline{}, 0)
 	require.NoError(t, err)
 
 	// OCR2 struct at migration v0099
@@ -393,25 +393,24 @@ func TestMigrate_101_GenericOCR2(t *testing.T) {
 
 func TestMigrate(t *testing.T) {
 	ctx := testutils.Context(t)
-	lggr := logger.TestLogger(t)
 	_, db := heavyweight.FullTestDBEmptyV2(t, nil)
 	err := goose.UpTo(db.DB, migrationDir, 100)
 	require.NoError(t, err)
 
-	err = migrate.Status(ctx, db.DB, lggr)
+	err = migrate.Status(ctx, db.DB)
 	require.NoError(t, err)
 
-	ver, err := migrate.Current(ctx, db.DB, lggr)
+	ver, err := migrate.Current(ctx, db.DB)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), ver)
 
-	err = migrate.Migrate(ctx, db.DB, lggr)
+	err = migrate.Migrate(ctx, db.DB)
 	require.NoError(t, err)
 
-	err = migrate.Rollback(ctx, db.DB, lggr, null.IntFrom(99))
+	err = migrate.Rollback(ctx, db.DB, null.IntFrom(99))
 	require.NoError(t, err)
 
-	ver, err = migrate.Current(ctx, db.DB, lggr)
+	ver, err = migrate.Current(ctx, db.DB)
 	require.NoError(t, err)
 	require.Equal(t, int64(99), ver)
 }

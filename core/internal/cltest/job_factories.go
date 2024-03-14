@@ -47,15 +47,15 @@ func MustInsertWebhookSpec(t *testing.T, db *sqlx.DB) (job.Job, job.WebhookSpec)
 	ctx := testutils.Context(t)
 	jobORM, pipelineORM := getORMs(t, db)
 	webhookSpec := job.WebhookSpec{}
-	require.NoError(t, jobORM.InsertWebhookSpec(&webhookSpec))
+	require.NoError(t, jobORM.InsertWebhookSpec(ctx, &webhookSpec))
 
 	pSpec := pipeline.Pipeline{}
-	pipelineSpecID, err := pipelineORM.CreateSpec(ctx, nil, pSpec, 0)
+	pipelineSpecID, err := pipelineORM.CreateSpec(ctx, pSpec, 0)
 	require.NoError(t, err)
 
 	createdJob := job.Job{WebhookSpecID: &webhookSpec.ID, WebhookSpec: &webhookSpec, SchemaVersion: 1, Type: "webhook",
 		ExternalJobID: uuid.New(), PipelineSpecID: pipelineSpecID}
-	require.NoError(t, jobORM.InsertJob(&createdJob))
+	require.NoError(t, jobORM.InsertJob(ctx, &createdJob))
 
 	return createdJob, webhookSpec
 }
@@ -66,7 +66,7 @@ func getORMs(t *testing.T, db *sqlx.DB) (jobORM job.ORM, pipelineORM pipeline.OR
 	lggr := logger.TestLogger(t)
 	pipelineORM = pipeline.NewORM(db, lggr, config.JobPipeline().MaxSuccessfulRuns())
 	bridgeORM := bridges.NewORM(db)
-	jobORM = job.NewORM(db, pipelineORM, bridgeORM, keyStore, lggr, config.Database())
+	jobORM = job.NewORM(db, pipelineORM, bridgeORM, keyStore, lggr)
 	t.Cleanup(func() { jobORM.Close() })
 	return
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
 	pkgerrors "github.com/pkg/errors"
 	"golang.org/x/exp/maps"
 
@@ -71,13 +70,11 @@ func init() {
 var _ commontypes.Relayer = &Relayer{} //nolint:staticcheck
 
 type Relayer struct {
-	db          *sqlx.DB // legacy: prefer to use ds instead
 	ds          sqlutil.DataSource
 	chain       legacyevm.Chain
 	lggr        logger.Logger
 	ks          CSAETHKeystore
 	mercuryPool wsrpc.Pool
-	pgCfg       pg.QConfig
 	chainReader commontypes.ChainReader
 	codec       commontypes.Codec
 
@@ -95,8 +92,7 @@ type CSAETHKeystore interface {
 }
 
 type RelayerOpts struct {
-	*sqlx.DB // legacy: prefer to use ds instead
-	DS       sqlutil.DataSource
+	DS sqlutil.DataSource
 	pg.QConfig
 	CSAETHKeystore
 	MercuryPool wsrpc.Pool
@@ -104,9 +100,6 @@ type RelayerOpts struct {
 
 func (c RelayerOpts) Validate() error {
 	var err error
-	if c.DB == nil {
-		err = errors.Join(err, errors.New("nil DB"))
-	}
 	if c.DS == nil {
 		err = errors.Join(err, errors.New("nil DataSource"))
 	}
@@ -134,13 +127,11 @@ func NewRelayer(lggr logger.Logger, chain legacyevm.Chain, opts RelayerOpts) (*R
 	lloORM := llo.NewORM(opts.DS, chain.ID())
 	cdcFactory := llo.NewChannelDefinitionCacheFactory(lggr, lloORM, chain.LogPoller())
 	return &Relayer{
-		db:          opts.DB,
 		ds:          opts.DS,
 		chain:       chain,
 		lggr:        lggr,
 		ks:          opts.CSAETHKeystore,
 		mercuryPool: opts.MercuryPool,
-		pgCfg:       opts.QConfig,
 		cdcFactory:  cdcFactory,
 		lloORM:      lloORM,
 		mercuryORM:  mercuryORM,
@@ -638,7 +629,7 @@ func (r *Relayer) NewMedianProvider(rargs commontypes.RelayArgs, pargs commontyp
 
 func (r *Relayer) NewAutomationProvider(rargs commontypes.RelayArgs, pargs commontypes.PluginArgs) (commontypes.AutomationProvider, error) {
 	lggr := r.lggr.Named("AutomationProvider").Named(rargs.ExternalJobID.String())
-	ocr2keeperRelayer := NewOCR2KeeperRelayer(r.db, r.chain, lggr.Named("OCR2KeeperRelayer"), r.ks.Eth(), r.pgCfg)
+	ocr2keeperRelayer := NewOCR2KeeperRelayer(r.ds, r.chain, lggr.Named("OCR2KeeperRelayer"), r.ks.Eth())
 
 	return ocr2keeperRelayer.NewOCR2KeeperProvider(rargs, pargs)
 }

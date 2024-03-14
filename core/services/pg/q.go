@@ -69,17 +69,6 @@ func WithParentCtx(ctx context.Context) QOpt {
 	}
 }
 
-// If the parent has a timeout, just use that instead of DefaultTimeout
-func WithParentCtxInheritTimeout(ctx context.Context) QOpt {
-	return func(q *Q) {
-		q.ParentCtx = ctx
-		deadline, ok := q.ParentCtx.Deadline()
-		if ok {
-			q.QueryTimeout = time.Until(deadline)
-		}
-	}
-}
-
 // WithLongQueryTimeout prevents the usage of the `DefaultQueryTimeout` duration and uses `OneMinuteQueryTimeout` instead
 // Some queries need to take longer when operating over big chunks of data, like deleting jobs, but we need to keep some upper bound timeout
 func WithLongQueryTimeout() QOpt {
@@ -144,15 +133,6 @@ func (q Q) originalLogger() logger.Logger {
 	return logger.Helper(q.logger, -2)
 }
 
-func PrepareQueryRowx(q Queryer, sql string, dest interface{}, arg interface{}) error {
-	stmt, err := q.PrepareNamed(sql)
-	if err != nil {
-		return errors.Wrap(err, "error preparing named statement")
-	}
-	defer stmt.Close()
-	return errors.Wrap(stmt.QueryRowx(arg).Scan(dest), "error querying row")
-}
-
 func (q Q) WithOpts(qopts ...QOpt) Q {
 	return NewQ(q.db, q.originalLogger(), q.config, qopts...)
 }
@@ -167,43 +147,6 @@ func (q Q) Transaction(fc func(q Queryer) error, txOpts ...TxOption) error {
 	return SqlxTransaction(ctx, q.Queryer, q.originalLogger(), fc, txOpts...)
 }
 
-// CAUTION: A subtle problem lurks here, because the following code is buggy:
-//
-//	ctx, cancel := context.WithCancel(context.Background())
-//	rows, err := db.QueryContext(ctx, "SELECT foo")
-//	cancel() // canceling here "poisons" the scan below
-//	for rows.Next() {
-//	  rows.Scan(...)
-//	}
-//
-// We must cancel the context only after we have completely finished using the
-// returned rows or result from the query/exec
-//
-// For this reasons, the following functions return a context.CancelFunc and it
-// is up to the caller to ensure that cancel is called after it has finished
-//
-// Generally speaking, it makes more sense to use Get/Select in most cases,
-// which avoids this problem
-func (q Q) ExecQIter(query string, args ...interface{}) (sql.Result, context.CancelFunc, error) {
-	ctx, cancel := q.Context()
-
-	ql := q.newQueryLogger(query, args)
-	ql.logSqlQuery()
-	defer ql.postSqlLog(ctx, time.Now())
-
-	res, err := q.Queryer.ExecContext(ctx, query, args...)
-	return res, cancel, ql.withLogError(err)
-}
-func (q Q) ExecQWithRowsAffected(query string, args ...interface{}) (int64, error) {
-	res, cancel, err := q.ExecQIter(query, args...)
-	defer cancel()
-	if err != nil {
-		return 0, err
-	}
-
-	rowsDeleted, err := res.RowsAffected()
-	return rowsDeleted, err
-}
 func (q Q) ExecQ(query string, args ...interface{}) error {
 	ctx, cancel := q.Context()
 	defer cancel()
@@ -215,6 +158,7 @@ func (q Q) ExecQ(query string, args ...interface{}) error {
 	_, err := q.Queryer.ExecContext(ctx, query, args...)
 	return ql.withLogError(err)
 }
+
 func (q Q) ExecQNamed(query string, arg interface{}) (err error) {
 	query, args, err := q.BindNamed(query, arg)
 	if err != nil {
@@ -244,14 +188,6 @@ func (q Q) Select(dest interface{}, query string, args ...interface{}) error {
 	return ql.withLogError(q.Queryer.SelectContext(ctx, dest, query, args...))
 }
 
-func (q Q) SelectNamed(dest interface{}, query string, arg interface{}) error {
-	query, args, err := q.BindNamed(query, arg)
-	if err != nil {
-		return errors.Wrap(err, "error binding arg")
-	}
-	return q.Select(dest, query, args...)
-}
-
 func (q Q) Get(dest interface{}, query string, args ...interface{}) error {
 	ctx, cancel := q.Context()
 	defer cancel()
@@ -261,21 +197,6 @@ func (q Q) Get(dest interface{}, query string, args ...interface{}) error {
 	defer ql.postSqlLog(ctx, time.Now())
 
 	return ql.withLogError(q.Queryer.GetContext(ctx, dest, query, args...))
-}
-
-func (q Q) GetNamed(sql string, dest interface{}, arg interface{}) error {
-	query, args, err := q.BindNamed(sql, arg)
-	if err != nil {
-		return errors.Wrap(err, "error binding arg")
-	}
-	ctx, cancel := q.Context()
-	defer cancel()
-
-	ql := q.newQueryLogger(query, args)
-	ql.logSqlQuery()
-	defer ql.postSqlLog(ctx, time.Now())
-
-	return ql.withLogError(errors.Wrap(q.GetContext(ctx, dest, query, args...), "error in get query"))
 }
 
 func (q Q) newQueryLogger(query string, args []interface{}) *queryLogger {

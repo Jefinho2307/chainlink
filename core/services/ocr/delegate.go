@@ -10,9 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/pkg/errors"
 
-	"github.com/jmoiron/sqlx"
-
 	commonlogger "github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/mailbox"
 
 	"github.com/smartcontractkit/libocr/gethwrappers/offchainaggregator"
@@ -35,7 +34,7 @@ import (
 )
 
 type Delegate struct {
-	db                    *sqlx.DB
+	ds                    sqlutil.DataSource
 	jobORM                job.ORM
 	keyStore              keystore.Master
 	pipelineRunner        pipeline.Runner
@@ -52,7 +51,7 @@ var _ job.Delegate = (*Delegate)(nil)
 const ConfigOverriderPollInterval = 30 * time.Second
 
 func NewDelegate(
-	db *sqlx.DB,
+	ds sqlutil.DataSource,
 	jobORM job.ORM,
 	keyStore keystore.Master,
 	pipelineRunner pipeline.Runner,
@@ -64,7 +63,7 @@ func NewDelegate(
 	mailMon *mailbox.Monitor,
 ) *Delegate {
 	return &Delegate{
-		db:                    db,
+		ds:                    ds,
 		jobORM:                jobORM,
 		keyStore:              keyStore,
 		pipelineRunner:        pipelineRunner,
@@ -120,7 +119,7 @@ func (d *Delegate) ServicesForSpec(ctx context.Context, jb job.Job) (services []
 		return nil, errors.Wrap(err, "could not instantiate NewOffchainAggregatorCaller")
 	}
 
-	ocrDB := NewDB(d.db, concreteSpec.ID, lggr)
+	ocrDB := NewDB(d.ds, concreteSpec.ID, lggr)
 
 	tracker := NewOCRContractTracker(
 		contract,
@@ -130,7 +129,7 @@ func (d *Delegate) ServicesForSpec(ctx context.Context, jb job.Job) (services []
 		chain.LogBroadcaster(),
 		jb.ID,
 		lggr,
-		d.db,
+		d.ds,
 		ocrDB,
 		chain.Config().EVM(),
 		chain.HeadBroadcaster(),
@@ -157,7 +156,7 @@ func (d *Delegate) ServicesForSpec(ctx context.Context, jb job.Job) (services []
 	}
 
 	ocrLogger := commonlogger.NewOCRWrapper(lggr, chain.Config().OCR().TraceLogging(), func(msg string) {
-		d.jobORM.TryRecordError(jb.ID, msg)
+		d.jobORM.TryRecordError(ctx, jb.ID, msg)
 	})
 
 	lc := toLocalConfig(chain.Config().EVM(), chain.Config().EVM().OCR(), chain.Config().Insecure(), *concreteSpec, chain.Config().OCR())

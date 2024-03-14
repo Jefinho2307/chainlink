@@ -24,10 +24,11 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap/zaptest/observer"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	// NOTE: To avoid circular dependencies, this package MUST NOT import
 	// anything from "github.com/smartcontractkit/chainlink/v2/core"
@@ -420,8 +421,9 @@ func SkipShortDB(tb testing.TB) {
 
 func AssertCount(t *testing.T, ds sqlutil.DataSource, tableName string, expected int64) {
 	t.Helper()
+	ctx := Context(t)
 	var count int64
-	err := ds.GetContext(Context(t), &count, fmt.Sprintf(`SELECT count(*) FROM %s;`, tableName))
+	err := ds.GetContext(ctx, &count, fmt.Sprintf(`SELECT count(*) FROM %s;`, tableName))
 	require.NoError(t, err)
 	require.Equal(t, expected, count)
 }

@@ -1,6 +1,7 @@
 package pipeline_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/hex"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/jsonserializable"
 
@@ -38,28 +40,28 @@ func (ormconfig) JobPipelineMaxSuccessfulRuns() uint64 { return 123456 }
 
 type testOnlyORM interface {
 	pipeline.ORM
-	AddJobPipelineSpecWithoutConstraints(jobID, pipelineSpecID int32) error
+	AddJobPipelineSpecWithoutConstraints(ctx context.Context, jobID, pipelineSpecID int32) error
 }
 
 type testORM struct {
 	pipeline.ORM
-	db *sqlx.DB
+	ds sqlutil.DataSource
 }
 
-func (torm *testORM) AddJobPipelineSpecWithoutConstraints(jobID, pipelineSpecID int32) error {
-	_, err := torm.db.Exec(`SET CONSTRAINTS fk_job_pipeline_spec_job DEFERRED`)
+func (torm *testORM) AddJobPipelineSpecWithoutConstraints(ctx context.Context, jobID, pipelineSpecID int32) error {
+	_, err := torm.ds.ExecContext(ctx, `SET CONSTRAINTS fk_job_pipeline_spec_job DEFERRED`)
 	if err != nil {
 		return err
 	}
-	_, err = torm.db.Exec(`INSERT INTO job_pipeline_specs (job_id,pipeline_spec_id, is_primary) VALUES ($1, $2, false)`, jobID, pipelineSpecID)
+	_, err = torm.ds.ExecContext(ctx, `INSERT INTO job_pipeline_specs (job_id,pipeline_spec_id, is_primary) VALUES ($1, $2, false)`, jobID, pipelineSpecID)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func newTestORM(orm pipeline.ORM, db *sqlx.DB) testOnlyORM {
-	return &testORM{ORM: orm, db: db}
+func newTestORM(orm pipeline.ORM, ds sqlutil.DataSource) testOnlyORM {
+	return &testORM{ORM: orm, ds: ds}
 }
 
 func setupORM(t *testing.T, heavy bool) (db *sqlx.DB, orm pipeline.ORM, jorm job.ORM) {
@@ -72,12 +74,11 @@ func setupORM(t *testing.T, heavy bool) (db *sqlx.DB, orm pipeline.ORM, jorm job
 	}
 	cfg := ormconfig{pgtest.NewQConfig(true)}
 	orm = pipeline.NewORM(db, logger.TestLogger(t), cfg.JobPipelineMaxSuccessfulRuns())
-	config := configtest.NewTestGeneralConfig(t)
 	lggr := logger.TestLogger(t)
 	keyStore := cltest.NewKeyStore(t, db)
 	bridgeORM := bridges.NewORM(db)
 
-	jorm = job.NewORM(db, orm, bridgeORM, keyStore, lggr, config.Database())
+	jorm = job.NewORM(db, orm, bridgeORM, keyStore, lggr)
 
 	return
 }
@@ -103,7 +104,7 @@ func Test_PipelineORM_CreateSpec(t *testing.T) {
 		Source: source,
 	}
 
-	id, err := orm.CreateSpec(ctx, nil, p, maxTaskDuration)
+	id, err := orm.CreateSpec(ctx, p, maxTaskDuration)
 	require.NoError(t, err)
 
 	actual := pipeline.Spec{}
@@ -171,7 +172,7 @@ answer2 [type=bridge name=election_winner index=1];
 			DotDagSource: s,
 		},
 	}
-	err := jobORM.CreateJob(&jb)
+	err := jobORM.CreateJob(ctx, &jb)
 	require.NoError(t, err)
 
 	run := &pipeline.Run{
@@ -274,7 +275,7 @@ answer2 [type=bridge name=election_winner index=1];
 			DotDagSource: s,
 		},
 	}
-	err := jorm.CreateJob(&jb)
+	err := jorm.CreateJob(ctx, &jb)
 	require.NoError(t, err)
 	spec := pipeline.Spec{
 		DotDagSource:    s,
@@ -665,7 +666,7 @@ func Test_GetUnfinishedRuns_Keepers(t *testing.T) {
 	porm := pipeline.NewORM(db, lggr, config.JobPipeline().MaxSuccessfulRuns())
 	bridgeORM := bridges.NewORM(db)
 
-	jorm := job.NewORM(db, porm, bridgeORM, keyStore, lggr, config.Database())
+	jorm := job.NewORM(db, porm, bridgeORM, keyStore, lggr)
 	defer func() { assert.NoError(t, jorm.Close()) }()
 
 	timestamp := time.Now()
@@ -689,7 +690,7 @@ func Test_GetUnfinishedRuns_Keepers(t *testing.T) {
 		MaxTaskDuration: models.Interval(1 * time.Minute),
 	}
 
-	err := jorm.CreateJob(&keeperJob)
+	err := jorm.CreateJob(ctx, &keeperJob)
 	require.NoError(t, err)
 	require.Equal(t, job.Keeper, keeperJob.Type)
 
@@ -768,7 +769,7 @@ func Test_GetUnfinishedRuns_DirectRequest(t *testing.T) {
 	porm := pipeline.NewORM(db, lggr, config.JobPipeline().MaxSuccessfulRuns())
 	bridgeORM := bridges.NewORM(db)
 
-	jorm := job.NewORM(db, porm, bridgeORM, keyStore, lggr, config.Database())
+	jorm := job.NewORM(db, porm, bridgeORM, keyStore, lggr)
 	defer func() { assert.NoError(t, jorm.Close()) }()
 
 	timestamp := time.Now()
@@ -791,7 +792,7 @@ func Test_GetUnfinishedRuns_DirectRequest(t *testing.T) {
 		MaxTaskDuration: models.Interval(1 * time.Minute),
 	}
 
-	err := jorm.CreateJob(&drJob)
+	err := jorm.CreateJob(ctx, &drJob)
 	require.NoError(t, err)
 	require.Equal(t, job.DirectRequest, drJob.Type)
 
@@ -865,7 +866,7 @@ func Test_Prune(t *testing.T) {
 	ps1 := cltest.MustInsertPipelineSpec(t, db)
 
 	// We need a job_pipeline_specs entry to test the pruning mechanism
-	err := torm.AddJobPipelineSpecWithoutConstraints(ps1.ID, ps1.ID)
+	err := torm.AddJobPipelineSpecWithoutConstraints(testutils.Context(t), ps1.ID, ps1.ID)
 	require.NoError(t, err)
 
 	jobID := ps1.ID
