@@ -3205,7 +3205,7 @@ CheckInclusionPercentile = 90
 TransactionPercentile = 60
 
 [HeadTracker]
-HistoryDepth = 5
+HistoryDepth = 10
 MaxBufferSize = 3
 SamplingInterval = '1s'
 
@@ -3290,7 +3290,7 @@ CheckInclusionPercentile = 90
 TransactionPercentile = 60
 
 [HeadTracker]
-HistoryDepth = 5
+HistoryDepth = 10
 MaxBufferSize = 3
 SamplingInterval = '1s'
 
@@ -3375,7 +3375,7 @@ CheckInclusionPercentile = 90
 TransactionPercentile = 60
 
 [HeadTracker]
-HistoryDepth = 5
+HistoryDepth = 10
 MaxBufferSize = 3
 SamplingInterval = '1s'
 
