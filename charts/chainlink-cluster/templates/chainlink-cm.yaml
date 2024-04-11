@@ -45,7 +45,7 @@ data:
     ChainID = {{ $chainCfg.networkId | quote }}
     MinContractPayment = '0'
     AutoCreateKey = true
-    FinalityDepth = 1
+    FinalityDepth = 10
     {{- if (hasKey $chainCfg "customEVMConfigToml") }}
     {{- $chainCfg.customEVMConfigToml | nindent 4 }}
     {{- end }}
