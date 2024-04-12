@@ -378,6 +378,7 @@ func NewApplication(opts ApplicationOpts) (Application, error) {
 				globalLogger,
 				registry,
 				legacyEVMChains,
+				cfg.Capabilities().Peering().PeerID().String(),
 			),
 		}
 		webhookJobRunner = delegates[job.Webhook].(*webhook.Delegate).WebhookJobRunner()

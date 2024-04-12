@@ -24,17 +24,18 @@ const (
 // Engine handles the lifecycle of a single workflow and its executions.
 type Engine struct {
 	services.StateMachine
-	logger              logger.Logger
-	registry            types.CapabilitiesRegistry
-	workflow            *workflow
-	executionStates     *inMemoryStore
-	pendingStepRequests chan stepRequest
-	triggerEvents       chan capabilities.CapabilityResponse
-	newWorkerCh         chan struct{}
-	stepUpdateCh        chan stepState
-	wg                  sync.WaitGroup
-	stopCh              services.StopChan
-	newWorkerTimeout    time.Duration
+	logger                  logger.Logger
+	registry                types.CapabilitiesRegistry
+	targetExecutionStrategy executionStrategy
+	workflow                *workflow
+	executionStates         *inMemoryStore
+	pendingStepRequests     chan stepRequest
+	triggerEvents           chan capabilities.CapabilityResponse
+	newWorkerCh             chan struct{}
+	stepUpdateCh            chan stepState
+	wg                      sync.WaitGroup
+	stopCh                  services.StopChan
+	newWorkerTimeout        time.Duration
 
 	// Used for testing to wait for an execution to complete
 	xxxExecutionFinished chan string
@@ -107,10 +108,10 @@ LOOP:
 				}
 
 				// We only need to configure actions, consensus and targets here, and
-				// they all satisfy the `CallbackExecutable` interface
-				cc, ok := cp.(capabilities.CallbackExecutable)
+				// they all satisfy the `CallbackCapability` interface
+				cc, ok := cp.(capabilities.CallbackCapability)
 				if !ok {
-					return fmt.Errorf("could not coerce capability %s to CallbackExecutable", s.Type)
+					return fmt.Errorf("could not coerce capability %s to CallbackCapability", s.Type)
 				}
 
 				if s.config == nil {
@@ -424,20 +425,24 @@ func (e *Engine) workerForStepRequest(ctx context.Context, msg stepRequest) {
 	defer func() { e.newWorkerCh <- struct{}{} }()
 	defer e.wg.Done()
 
-	e.logger.Debugw("executing on a step event", "stepRef", msg.stepRef, "executionID", msg.state.executionID)
+	// Instantiate a child logger; in addition to the WorkflowID field the workflow
+	// logger will already have, this adds the `stepRef` and `executionID`
+	l := e.logger.With("stepRef", msg.stepRef, "executionID", msg.state.executionID)
+
+	l.Debugw("executing on a step event")
 	stepState := &stepState{
 		outputs:     &stepOutput{},
 		executionID: msg.state.executionID,
 		ref:         msg.stepRef,
 	}
 
-	inputs, outputs, err := e.executeStep(ctx, msg)
+	inputs, outputs, err := e.executeStep(ctx, l, msg)
 	if err != nil {
-		e.logger.Errorf("error executing step request: %s", err, "executionID", msg.state.executionID, "stepRef", msg.stepRef)
+		l.Errorf("error executing step request: %s", err)
 		stepState.outputs.err = err
 		stepState.status = statusErrored
 	} else {
-		e.logger.Infow("step executed successfully", "executionID", msg.state.executionID, "stepRef", msg.stepRef, "outputs", outputs)
+		l.Infow("step executed successfully", "outputs", outputs)
 		stepState.outputs.value = outputs
 		stepState.status = statusCompleted
 	}
@@ -452,13 +457,13 @@ func (e *Engine) workerForStepRequest(ctx context.Context, msg stepRequest) {
 	// like this one will get picked up again and will be reprocessed.
 	select {
 	case <-ctx.Done():
-		e.logger.Errorf("context canceled before step update could be issued", err, "executionID", msg.state.executionID, "stepRef", msg.stepRef)
+		l.Errorf("context canceled before step update could be issued", err)
 	case e.stepUpdateCh <- *stepState:
 	}
 }
 
 // executeStep executes the referenced capability within a step and returns the result.
-func (e *Engine) executeStep(ctx context.Context, msg stepRequest) (*values.Map, values.Value, error) {
+func (e *Engine) executeStep(ctx context.Context, l logger.Logger, msg stepRequest) (*values.Map, values.Value, error) {
 	step, err := e.workflow.Vertex(msg.stepRef)
 	if err != nil {
 		return nil, nil, err
@@ -483,18 +488,24 @@ func (e *Engine) executeStep(ctx context.Context, msg stepRequest) (*values.Map,
 		},
 	}
 
-	resp, err := capabilities.ExecuteSync(ctx, step.capability, tr)
+	info, err := step.capability.Info(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	strategy := executionStrategy(immediateExecution{})
+	switch info.CapabilityType {
+	case capabilities.CapabilityTypeTarget:
+		strategy = e.targetExecutionStrategy
+	default:
+	}
+
+	output, err := strategy.Apply(ctx, l, step.capability, tr)
 	if err != nil {
 		return inputs, nil, err
 	}
 
-	// `ExecuteSync` returns a `values.List` even if there was
-	// just one return value. If that is the case, let's unwrap the
-	// single value to make it easier to use in -- for example -- variable interpolation.
-	if len(resp.Underlying) > 1 {
-		return inputs, resp, err
-	}
-	return inputs, resp.Underlying[0], err
+	return inputs, output, err
 }
 
 func (e *Engine) deregisterTrigger(ctx context.Context, t *triggerCapability) error {
@@ -576,13 +587,14 @@ func (e *Engine) Close() error {
 }
 
 type Config struct {
-	Spec             string
-	WorkflowID       string
-	Lggr             logger.Logger
-	Registry         types.CapabilitiesRegistry
-	MaxWorkerLimit   int
-	QueueSize        int
-	NewWorkerTimeout time.Duration
+	Spec                    string
+	WorkflowID              string
+	Lggr                    logger.Logger
+	Registry                types.CapabilitiesRegistry
+	MaxWorkerLimit          int
+	QueueSize               int
+	NewWorkerTimeout        time.Duration
+	TargetExecutionStrategy executionStrategy
 }
 
 const (
@@ -602,6 +614,10 @@ func NewEngine(cfg Config) (engine *Engine, err error) {
 
 	if cfg.NewWorkerTimeout == 0 {
 		cfg.NewWorkerTimeout = defaultNewWorkerTimeout
+	}
+
+	if cfg.TargetExecutionStrategy == nil {
+		cfg.TargetExecutionStrategy = immediateExecution{}
 	}
 
 	// TODO: validation of the workflow spec
@@ -626,17 +642,18 @@ func NewEngine(cfg Config) (engine *Engine, err error) {
 	}
 
 	engine = &Engine{
-		logger:               cfg.Lggr.Named("WorkflowEngine"),
-		registry:             cfg.Registry,
-		workflow:             workflow,
-		executionStates:      newInMemoryStore(),
-		pendingStepRequests:  make(chan stepRequest, cfg.QueueSize),
-		newWorkerCh:          newWorkerCh,
-		stepUpdateCh:         make(chan stepState),
-		triggerEvents:        make(chan capabilities.CapabilityResponse),
-		stopCh:               make(chan struct{}),
-		newWorkerTimeout:     cfg.NewWorkerTimeout,
-		xxxExecutionFinished: make(chan string),
+		logger:                  cfg.Lggr.Named("WorkflowEngine").With("workflowID", cfg.WorkflowID),
+		registry:                cfg.Registry,
+		workflow:                workflow,
+		targetExecutionStrategy: cfg.TargetExecutionStrategy,
+		executionStates:         newInMemoryStore(),
+		pendingStepRequests:     make(chan stepRequest, cfg.QueueSize),
+		newWorkerCh:             newWorkerCh,
+		stepUpdateCh:            make(chan stepState),
+		triggerEvents:           make(chan capabilities.CapabilityResponse),
+		stopCh:                  make(chan struct{}),
+		newWorkerTimeout:        cfg.NewWorkerTimeout,
+		xxxExecutionFinished:    make(chan string),
 	}
 	return engine, nil
 }

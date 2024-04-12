@@ -107,7 +107,7 @@ func (w *workflow) dependents(start string) ([]*step, error) {
 type step struct {
 	stepDefinition
 	dependencies []string
-	capability   capabilities.CallbackExecutable
+	capability   capabilities.CallbackCapability
 	config       *values.Map
 }
 
