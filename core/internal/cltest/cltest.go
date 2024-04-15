@@ -202,6 +202,7 @@ type TestApplication struct {
 	Started bool
 	Backend *backends.SimulatedBackend
 	Keys    []ethkey.KeyV2
+	MercuryPool *wsrpc.Pool
 }
 
 // NewApplicationEVMDisabled creates a new application with default config but EVM disabled
@@ -346,11 +347,19 @@ func NewApplicationWithConfig(t testing.TB, cfg chainlink.GeneralConfig, flagsAn
 	mailMon := mailbox.NewMonitor(cfg.AppID().String(), lggr.Named("Mailbox"))
 	loopRegistry := plugins.NewLoopRegistry(lggr, nil)
 
+	// TOML config + env var protected usage of grpc mercury pool
+	var mercuryTlsCertFile *string
+	if cfg.Mercury().TLS() != nil {
+		tlsCertFile := cfg.Mercury().TLS().CertFile()
+		if cfg.Mercury().TLS() != nil && tlsCertFile != "" {
+			mercuryTlsCertFile = &tlsCertFile
+		}
+	}
 	mercuryPool := wsrpc.NewPool(lggr, cache.Config{
 		LatestReportTTL:      cfg.Mercury().Cache().LatestReportTTL(),
 		MaxStaleAge:          cfg.Mercury().Cache().MaxStaleAge(),
 		LatestReportDeadline: cfg.Mercury().Cache().LatestReportDeadline(),
-	}, nil)
+	}, mercuryTlsCertFile)
 
 	relayerFactory := chainlink.RelayerFactory{
 		Logger:       lggr,
@@ -438,6 +447,7 @@ func NewApplicationWithConfig(t testing.TB, cfg chainlink.GeneralConfig, flagsAn
 		t:                    t,
 		ChainlinkApplication: app,
 		Logger:               lggr,
+		MercuryPool: 		   &mercuryPool,
 	}
 
 	srvr := httptest.NewUnstartedServer(web.Router(t, app, nil))
@@ -531,7 +541,7 @@ func NewEthMocksWithTransactionsOnBlocksAssertions(t testing.TB) *evmclimocks.Cl
 }
 
 // Start starts the chainlink app and registers Stop to clean up at end of test.
-func (ta *TestApplication) Start(ctx context.Context) error {
+func (ta TestApplication) Start(ctx context.Context) error {
 	ta.t.Helper()
 	ta.Started = true
 	err := ta.ChainlinkApplication.KeyStore.Unlock(Password)
@@ -548,7 +558,7 @@ func (ta *TestApplication) Start(ctx context.Context) error {
 }
 
 // Stop will stop the test application and perform cleanup
-func (ta *TestApplication) Stop() error {
+func (ta TestApplication) Stop() error {
 	ta.t.Helper()
 
 	if !ta.Started {
@@ -566,7 +576,7 @@ func (ta *TestApplication) Stop() error {
 	return err
 }
 
-func (ta *TestApplication) MustSeedNewSession(email string) (id string) {
+func (ta TestApplication) MustSeedNewSession(email string) (id string) {
 	session := NewSession()
 	ta.Logger.Infof("TestApplication creating session (id: %s, email: %s, last used: %s)", session.ID, email, session.LastUsed.String())
 	err := ta.GetSqlxDB().Get(&id, `INSERT INTO sessions (id, email, last_used, created_at) VALUES ($1, $2, $3, NOW()) RETURNING id`, session.ID, email, session.LastUsed)
@@ -575,7 +585,7 @@ func (ta *TestApplication) MustSeedNewSession(email string) (id string) {
 }
 
 // ImportKey adds private key to the application keystore and database
-func (ta *TestApplication) Import(ctx context.Context, content string) {
+func (ta TestApplication) Import(ctx context.Context, content string) {
 	require.NoError(ta.t, ta.KeyStore.Unlock(Password))
 	_, err := ta.KeyStore.Eth().Import(ctx, []byte(content), Password, &FixtureChainID)
 	require.NoError(ta.t, err)
@@ -586,7 +596,7 @@ type User struct {
 	Role  clsessions.UserRole
 }
 
-func (ta *TestApplication) NewHTTPClient(user *User) HTTPClientCleaner {
+func (ta TestApplication) NewHTTPClient(user *User) HTTPClientCleaner {
 	ta.t.Helper()
 
 	if user == nil {
@@ -615,12 +625,12 @@ func (ta *TestApplication) NewHTTPClient(user *User) HTTPClientCleaner {
 	}
 }
 
-func (ta *TestApplication) NewClientOpts() cmd.ClientOpts {
+func (ta TestApplication) NewClientOpts() cmd.ClientOpts {
 	return cmd.ClientOpts{RemoteNodeURL: *MustParseURL(ta.t, ta.Server.URL), InsecureSkipVerify: true}
 }
 
 // NewShellAndRenderer creates a new cmd.Shell for the test application
-func (ta *TestApplication) NewShellAndRenderer() (*cmd.Shell, *RendererMock) {
+func (ta TestApplication) NewShellAndRenderer() (*cmd.Shell, *RendererMock) {
 	hc := ta.NewHTTPClient(nil)
 	r := &RendererMock{}
 	lggr := logger.TestLogger(ta.t)
@@ -640,7 +650,7 @@ func (ta *TestApplication) NewShellAndRenderer() (*cmd.Shell, *RendererMock) {
 	return client, r
 }
 
-func (ta *TestApplication) NewAuthenticatingShell(prompter cmd.Prompter) *cmd.Shell {
+func (ta TestApplication) NewAuthenticatingShell(prompter cmd.Prompter) *cmd.Shell {
 	lggr := logger.TestLogger(ta.t)
 	cookieAuth := cmd.NewSessionCookieAuthenticator(ta.NewClientOpts(), &cmd.MemoryCookieStore{}, lggr)
 	client := &cmd.Shell{

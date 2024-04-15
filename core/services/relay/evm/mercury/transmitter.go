@@ -19,6 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/smartcontractkit/libocr/offchainreporting2plus/chains/evmutil"
 	ocrtypes "github.com/smartcontractkit/libocr/offchainreporting2plus/types"
@@ -203,7 +204,7 @@ func (s *server) runDeleteQueueLoop(stopCh services.StopChan, wg *sync.WaitGroup
 	}
 }
 
-func (s *server) runQueueLoop(stopCh services.StopChan, wg *sync.WaitGroup, feedIDHex string) {
+func (s *server) runQueueLoop(stopCh services.StopChan, wg *sync.WaitGroup, feedIDHex string, fromAccount string) {
 	defer wg.Done()
 	// Exponential backoff with very short retry interval (since latency is a priority)
 	// 5ms, 10ms, 20ms, 40ms etc
@@ -222,6 +223,10 @@ func (s *server) runQueueLoop(stopCh services.StopChan, wg *sync.WaitGroup, feed
 			return
 		}
 		ctx, cancel := context.WithTimeout(runloopCtx, utils.WithJitter(transmitTimeout))
+		kv := make(map[string]string)
+		kv["peer-id"] = fromAccount
+		md := metadata.New(kv)
+		ctx = metadata.NewOutgoingContext(ctx, md)
 		res, err := s.c.Transmit(ctx, t.Req)
 		cancel()
 		if runloopCtx.Err() != nil {
@@ -322,7 +327,7 @@ func (mt *mercuryTransmitter) Start(ctx context.Context) (err error) {
 
 				mt.wg.Add(2)
 				go s.runDeleteQueueLoop(mt.stopCh, mt.wg)
-				go s.runQueueLoop(mt.stopCh, mt.wg, mt.feedID.Hex())
+				go s.runQueueLoop(mt.stopCh, mt.wg, mt.feedID.Hex(), mt.fromAccount)
 			}
 			if err := (&services.MultiStart{}).Start(ctx, startClosers...); err != nil {
 				return err
@@ -404,6 +409,7 @@ func (mt *mercuryTransmitter) Transmit(ctx context.Context, reportCtx ocrtypes.R
 				return err
 			}
 			if ok := s.q.Push(req, reportCtx); !ok {
+				// TODO: have to figure out how to wire metadata through to Transmit
 				s.transmitQueuePushErrorCount.Inc()
 				return errors.New("transmit queue is closed")
 			}
@@ -496,6 +502,15 @@ func (mt *mercuryTransmitter) latestReport(ctx context.Context, feedID [32]byte)
 	for _, s := range mt.servers {
 		s := s
 		g.Go(func() error {
+			// TODO: wire through grpc metadata here?
+			// or set as part of pb.LatestReportRequest?
+			// It might make sense to set the PeerId in the request, but also 
+			// setting the signature would be overkill. (both ID + sig in request and HTTP headers) 
+			// peerID = mt.FromAccount
+			kv := make(map[string]string)
+			kv["peer-id"] = mt.fromAccount
+			md := metadata.New(kv)
+			ctx = metadata.NewOutgoingContext(ctx, md)
 			resp, err := s.c.LatestReport(ctx, req)
 			if err != nil {
 				s.lggr.Warnw("latestReport failed", "err", err)
