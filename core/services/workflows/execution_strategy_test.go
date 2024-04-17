@@ -126,7 +126,7 @@ func TestDelayedExecutionStrategy(t *testing.T) {
 				},
 			}
 
-			de := delayedExecution{
+			de := scheduledExecution{
 				sharedSecret: [16]byte(key),
 				position:     tc.position,
 				n:            4,

@@ -106,9 +106,10 @@ func (w *workflow) dependents(start string) ([]*step, error) {
 // step wraps a stepDefinition with additional context for dependencies and execution
 type step struct {
 	stepDefinition
-	dependencies []string
-	capability   capabilities.CallbackCapability
-	config       *values.Map
+	dependencies      []string
+	capability        capabilities.CallbackCapability
+	config            *values.Map
+	executionStrategy executionStrategy
 }
 
 type triggerCapability struct {

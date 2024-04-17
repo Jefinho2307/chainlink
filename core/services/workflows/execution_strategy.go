@@ -38,9 +38,9 @@ func (i immediateExecution) Apply(ctx context.Context, lggr logger.Logger, cap c
 	return l.Underlying[0], nil
 }
 
-var _ executionStrategy = delayedExecution{}
+var _ executionStrategy = scheduledExecution{}
 
-type delayedExecution struct {
+type scheduledExecution struct {
 	sharedSecret [16]byte
 	// Position of the current node in the list of DON nodes maintained by the Registry
 	position int
@@ -55,7 +55,7 @@ var (
 	Schedule_OneAtATime = "oneAtATime"
 )
 
-func (d delayedExecution) Apply(ctx context.Context, lggr logger.Logger, cap capabilities.CallbackExecutable, req capabilities.CapabilityRequest) (values.Value, error) {
+func (d scheduledExecution) Apply(ctx context.Context, lggr logger.Logger, cap capabilities.CallbackExecutable, req capabilities.CapabilityRequest) (values.Value, error) {
 	tc, err := d.transmissionConfig(req.Config)
 	if err != nil {
 		return nil, err
@@ -81,7 +81,7 @@ func (d delayedExecution) Apply(ctx context.Context, lggr logger.Logger, cap cap
 	}
 }
 
-func (d delayedExecution) key(workflowID, workflowExecutionID string) [16]byte {
+func (d scheduledExecution) key(workflowID, workflowExecutionID string) [16]byte {
 	hash := sha3.NewLegacyKeccak256()
 	hash.Write(d.sharedSecret[:])
 	hash.Write([]byte(workflowID))
@@ -97,7 +97,7 @@ type transmissionConfig struct {
 	DeltaStage time.Duration
 }
 
-func (d delayedExecution) transmissionConfig(config *values.Map) (transmissionConfig, error) {
+func (d scheduledExecution) transmissionConfig(config *values.Map) (transmissionConfig, error) {
 	var tc struct {
 		DeltaStage string
 		Schedule   string
@@ -123,7 +123,7 @@ func (d delayedExecution) transmissionConfig(config *values.Map) (transmissionCo
 	}, nil
 }
 
-func (d delayedExecution) delayFor(position int, schedule []int, permutation []int, deltaStage time.Duration) *time.Duration {
+func (d scheduledExecution) delayFor(position int, schedule []int, permutation []int, deltaStage time.Duration) *time.Duration {
 	sum := 0
 	for i, s := range schedule {
 		sum += s

@@ -56,18 +56,12 @@ func (d *Delegate) ServicesForSpec(ctx context.Context, spec job.Job) ([]job.Ser
 		go mercuryEventLoop(trigger, d.logger)
 	}
 
-	delayedExecution, err := initializeDelayedExecution(d.peerID)
-	if err != nil {
-		d.logger.Errorw("could not initialize delayed execution", err)
-		return nil, nil
-	}
-
 	cfg := Config{
-		Lggr:                    d.logger,
-		Spec:                    spec.WorkflowSpec.Workflow,
-		WorkflowID:              spec.WorkflowSpec.WorkflowID,
-		Registry:                d.registry,
-		TargetExecutionStrategy: delayedExecution,
+		Lggr:       d.logger,
+		Spec:       spec.WorkflowSpec.Workflow,
+		WorkflowID: spec.WorkflowSpec.WorkflowID,
+		Registry:   d.registry,
+		DONInfo:    initializeDONInfo(d.logger, d.peerID),
 	}
 	engine, err := NewEngine(cfg)
 	if err != nil {
@@ -76,36 +70,28 @@ func (d *Delegate) ServicesForSpec(ctx context.Context, spec job.Job) ([]job.Ser
 	return []job.ServiceCtx{engine}, nil
 }
 
-func initializeDelayedExecution(myPeerID string) (delayedExecution, error) {
-	// TODO: source the below from the registry
-	workflowDONPeers := []string{
-		"p2p_12D3KooWF3dVeJ6YoT5HFnYhmwQWWMoEwVFzJQ5kKCMX3ZityxMC",
-		"p2p_12D3KooWQsmok6aD8PZqt3RnJhQRrNzKHLficq7zYFRp7kZ1hHP8",
-		"p2p_12D3KooWJbZLiMuGeKw78s3LM5TNgBTJHcF39DraxLu14bucG9RN",
-		"p2p_12D3KooWGqfSPhHKmQycfhRjgUDE2vg9YWZN27Eue8idb2ZUk6EH",
-	}
-	var position *int
-	for i, w := range workflowDONPeers {
-		if w == myPeerID {
-			idx := i
-			position = &idx
-		}
-	}
-	if position == nil {
-		return delayedExecution{}, fmt.Errorf("could not find peer %s in workflow DONs %+v", myPeerID, workflowDONPeers)
-	}
+func initializeDONInfo(lggr logger.Logger, myPeerID string) *DONInfo {
+	var key [16]byte
 
+	// TODO: fetch the key and DONInfo from the registry
 	keyString := "44fb5c1ee8ee48846c808a383da3aba3"
-	key, err := hex.DecodeString(keyString)
+	k, err := hex.DecodeString(keyString)
 	if err != nil {
-		return delayedExecution{}, fmt.Errorf("error decoding delayed execution shared secret %s: %w", keyString, err)
+		lggr.Errorf("could not decode key %s: %w", keyString, err)
 	}
+	key = [16]byte(k)
 
-	return delayedExecution{
-		sharedSecret: [16]byte(key),
-		n:            len(workflowDONPeers),
-		position:     *position,
-	}, nil
+	donInfo := &DONInfo{
+		Peers: []string{
+			"p2p_12D3KooWF3dVeJ6YoT5HFnYhmwQWWMoEwVFzJQ5kKCMX3ZityxMC",
+			"p2p_12D3KooWQsmok6aD8PZqt3RnJhQRrNzKHLficq7zYFRp7kZ1hHP8",
+			"p2p_12D3KooWJbZLiMuGeKw78s3LM5TNgBTJHcF39DraxLu14bucG9RN",
+			"p2p_12D3KooWGqfSPhHKmQycfhRjgUDE2vg9YWZN27Eue8idb2ZUk6EH",
+		},
+		PeerID:       myPeerID,
+		SharedSecret: key,
+	}
+	return donInfo
 }
 
 func NewDelegate(logger logger.Logger, registry types.CapabilitiesRegistry, legacyEVMChains legacyevm.LegacyChainContainer, peerID string) *Delegate {
