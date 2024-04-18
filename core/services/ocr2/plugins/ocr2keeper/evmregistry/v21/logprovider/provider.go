@@ -311,8 +311,10 @@ func (p *logEventProvider) getLogsFromBuffer(latestBlock int64) []ocr2keepers.Up
 
 		p.lggr.Debugw("dequeuing logs", "iterations", p.iterations, "currentIteration", p.currentIteration)
 
+		currentIteration := p.currentIteration % p.iterations
+
 		upkeepSelectorFn := func(id *big.Int) bool {
-			return big.NewInt(0).Mod(id, big.NewInt(int64(p.iterations))).Int64() == int64(p.currentIteration)
+			return id.Int64()%int64(p.iterations) == int64(currentIteration)
 		}
 
 		for len(payloads) < maxResults && start <= latestBlock {
