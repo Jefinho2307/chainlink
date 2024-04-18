@@ -304,8 +304,8 @@ func (p *logEventProvider) getLogsFromBuffer(latestBlock int64) []ocr2keepers.Up
 		}
 
 		if p.currentIteration == 0 {
-			p.iterations = (p.bufferV1.NumOfUpkeeps() / logLimitLow) / maxResults
-			p.lggr.Debugw("calculated iterations", "iterations", p.iterations, "upkeeps", p.bufferV1.NumOfUpkeeps(), "logLimitLow", logLimitLow, "maxResults", maxResults)
+			p.iterations = ((p.bufferV1.NumOfUpkeeps() / logLimitLow) / maxResults) + 1
+			p.lggr.Debugw("calculated iterations", "iterations", p.iterations, "upkeeps", p.bufferV1.NumOfUpkeeps(), "logLimitLow", logLimitLow, "maxResults")
 		}
 
 		p.lggr.Debugw("dequeuing logs", "iterations", p.iterations, "currentIteration", p.currentIteration)
@@ -333,7 +333,7 @@ func (p *logEventProvider) getLogsFromBuffer(latestBlock int64) []ocr2keepers.Up
 			start += int64(blockRate)
 		}
 
-		if p.currentIteration < p.iterations {
+		if p.currentIteration < p.iterations-1 {
 			p.currentIteration++
 		} else {
 			p.currentIteration = 0
