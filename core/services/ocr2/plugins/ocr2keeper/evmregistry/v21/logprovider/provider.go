@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"math"
 	"math/big"
 	"runtime"
 	"sync"
@@ -304,7 +305,7 @@ func (p *logEventProvider) getLogsFromBuffer(latestBlock int64) []ocr2keepers.Up
 		}
 
 		if p.currentIteration == 0 {
-			p.iterations = ((p.bufferV1.NumOfUpkeeps() / logLimitLow) / maxResults) + 1
+			p.iterations = int(math.Ceil(float64((p.bufferV1.NumOfUpkeeps() * logLimitLow) / maxResults)))
 			p.lggr.Debugw("calculated iterations", "iterations", p.iterations, "upkeeps", p.bufferV1.NumOfUpkeeps(), "logLimitLow", logLimitLow, "maxResults", maxResults)
 		}
 
@@ -333,7 +334,7 @@ func (p *logEventProvider) getLogsFromBuffer(latestBlock int64) []ocr2keepers.Up
 			start += int64(blockRate)
 		}
 
-		if p.currentIteration < p.iterations-1 {
+		if p.currentIteration < p.iterations {
 			p.currentIteration++
 		} else {
 			p.currentIteration = 0
