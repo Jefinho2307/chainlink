@@ -21,13 +21,18 @@ const (
 	mockedWorkflowID = "15c631d295ef5e32deb99a10ee6804bc4af1385568f9b3363f6552ac6dbb2cef"
 )
 
+type donInfo struct {
+	*capabilities.DON
+	PeerID string
+}
+
 // Engine handles the lifecycle of a single workflow and its executions.
 type Engine struct {
 	services.StateMachine
 	logger              logger.Logger
 	registry            types.CapabilitiesRegistry
 	workflow            *workflow
-	donInfo             *DONInfo
+	donInfo             donInfo
 	executionStates     *inMemoryStore
 	pendingStepRequests chan stepRequest
 	triggerEvents       chan capabilities.CapabilityResponse
@@ -189,15 +194,16 @@ func (e *Engine) initializeExecutionStrategy(step *step) error {
 		return nil
 	}
 
-	if e.donInfo == nil {
+	dinfo := e.donInfo
+	if dinfo.DON == nil {
 		e.logger.Debugf("initializing target step with immediate execution strategy: donInfo %+v", e.donInfo)
 		step.executionStrategy = ie
 		return nil
 	}
 
 	var position *int
-	for i, w := range e.donInfo.Peers {
-		if w == e.donInfo.PeerID {
+	for i, w := range dinfo.Members {
+		if w == dinfo.PeerID {
 			idx := i
 			position = &idx
 		}
@@ -210,9 +216,9 @@ func (e *Engine) initializeExecutionStrategy(step *step) error {
 	}
 
 	step.executionStrategy = scheduledExecution{
-		sharedSecret: e.donInfo.SharedSecret,
-		n:            len(e.donInfo.Peers),
-		position:     *position,
+		DON:      e.donInfo.DON,
+		Position: *position,
+		PeerID:   e.donInfo.PeerID,
 	}
 	e.logger.Debugf("initializing step %+v with scheduled execution strategy", step)
 	return nil
@@ -641,13 +647,8 @@ type Config struct {
 	MaxWorkerLimit   int
 	QueueSize        int
 	NewWorkerTimeout time.Duration
-	DONInfo          *DONInfo
-}
-
-type DONInfo struct {
-	SharedSecret [16]byte
-	PeerID       string
-	Peers        []string
+	DONInfo          *capabilities.DON
+	PeerID           string
 }
 
 const (
@@ -691,10 +692,13 @@ func NewEngine(cfg Config) (engine *Engine, err error) {
 	}
 
 	engine = &Engine{
-		logger:               cfg.Lggr.Named("WorkflowEngine").With("workflowID", cfg.WorkflowID),
-		registry:             cfg.Registry,
-		workflow:             workflow,
-		donInfo:              cfg.DONInfo,
+		logger:   cfg.Lggr.Named("WorkflowEngine").With("workflowID", cfg.WorkflowID),
+		registry: cfg.Registry,
+		workflow: workflow,
+		donInfo: donInfo{
+			DON:    cfg.DONInfo,
+			PeerID: cfg.PeerID,
+		},
 		executionStates:      newInMemoryStore(),
 		pendingStepRequests:  make(chan stepRequest, cfg.QueueSize),
 		newWorkerCh:          newWorkerCh,

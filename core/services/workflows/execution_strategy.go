@@ -8,6 +8,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/capabilities"
 	"github.com/smartcontractkit/chainlink-common/pkg/values"
 	"github.com/smartcontractkit/chainlink/v2/core/logger"
+	p2ptypes "github.com/smartcontractkit/chainlink/v2/core/services/p2p/types"
 
 	"github.com/smartcontractkit/libocr/permutation"
 
@@ -15,14 +16,14 @@ import (
 )
 
 type executionStrategy interface {
-	Apply(ctx context.Context, l logger.Logger, cap capabilities.CallbackExecutable, req capabilities.CapabilityRequest) (values.Value, error)
+	Apply(ctx context.Context, l logger.Logger, cap capabilities.CallbackCapability, req capabilities.CapabilityRequest) (values.Value, error)
 }
 
 var _ executionStrategy = immediateExecution{}
 
 type immediateExecution struct{}
 
-func (i immediateExecution) Apply(ctx context.Context, lggr logger.Logger, cap capabilities.CallbackExecutable, req capabilities.CapabilityRequest) (values.Value, error) {
+func (i immediateExecution) Apply(ctx context.Context, lggr logger.Logger, cap capabilities.CallbackCapability, req capabilities.CapabilityRequest) (values.Value, error) {
 	l, err := capabilities.ExecuteSync(ctx, cap, req)
 	if err != nil {
 		return nil, err
@@ -41,11 +42,9 @@ func (i immediateExecution) Apply(ctx context.Context, lggr logger.Logger, cap c
 var _ executionStrategy = scheduledExecution{}
 
 type scheduledExecution struct {
-	sharedSecret [16]byte
-	// Position of the current node in the list of DON nodes maintained by the Registry
-	position int
-	// Number of nodes in the workflow DON
-	n int
+	DON      *capabilities.DON
+	PeerID   p2ptypes.PeerID
+	Position int
 }
 
 var (
@@ -55,17 +54,40 @@ var (
 	Schedule_OneAtATime = "oneAtATime"
 )
 
-func (d scheduledExecution) Apply(ctx context.Context, lggr logger.Logger, cap capabilities.CallbackExecutable, req capabilities.CapabilityRequest) (values.Value, error) {
+func (d scheduledExecution) Apply(ctx context.Context, lggr logger.Logger, cap capabilities.CallbackCapability, req capabilities.CapabilityRequest) (values.Value, error) {
 	tc, err := d.transmissionConfig(req.Config)
 	if err != nil {
 		return nil, err
 	}
 
-	md := req.Metadata
-	key := d.key(md.WorkflowID, md.WorkflowExecutionID)
-	picked := permutation.Permutation(d.n, key)
+	info, err := cap.Info(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	delay := d.delayFor(d.position, tc.Schedule, picked, tc.DeltaStage)
+	n := len(d.DON.Members)
+	key := d.key(d.DON.Config.SharedSecret, req.Metadata.WorkflowID, req.Metadata.WorkflowExecutionID)
+	position := d.Position
+
+	// Note: if donInfo == nil, then this means the capability
+	// is local. We'll use the local DON info passed into the engine
+	// to generate the schedule.
+	if info.DON != nil {
+		n = len(info.DON.Members)
+		key = d.key(info.DON.Config.SharedSecret, req.Metadata.WorkflowID, req.Metadata.WorkflowExecutionID)
+
+		// Get our position in the target DON
+		shuffledTargetDONPositions := permutation.Permutation(n, key)
+		if position > n-1 {
+			lggr.Debugw("skipping transmission: node is not included in schedule")
+			return nil, nil
+		}
+
+		position = shuffledTargetDONPositions[position]
+	}
+
+	picked := permutation.Permutation(n, key)
+	delay := d.delayFor(position, tc.Schedule, picked, tc.DeltaStage)
 	if delay == nil {
 		lggr.Debugw("skipping transmission: node is not included in schedule")
 		return nil, nil
@@ -81,9 +103,9 @@ func (d scheduledExecution) Apply(ctx context.Context, lggr logger.Logger, cap c
 	}
 }
 
-func (d scheduledExecution) key(workflowID, workflowExecutionID string) [16]byte {
+func (d scheduledExecution) key(sharedSecret [16]byte, workflowID, workflowExecutionID string) [16]byte {
 	hash := sha3.NewLegacyKeccak256()
-	hash.Write(d.sharedSecret[:])
+	hash.Write(sharedSecret[:])
 	hash.Write([]byte(workflowID))
 	hash.Write([]byte(workflowExecutionID))
 
@@ -112,7 +134,7 @@ func (d scheduledExecution) transmissionConfig(config *values.Map) (transmission
 		return transmissionConfig{}, fmt.Errorf("failed to parse DeltaStage %s as duration: %w", tc.DeltaStage, err)
 	}
 
-	sched, err := schedule(tc.Schedule, d.n)
+	sched, err := schedule(tc.Schedule, len(d.DON.Members))
 	if err != nil {
 		return transmissionConfig{}, err
 	}

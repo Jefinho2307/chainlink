@@ -6,6 +6,7 @@ import (
 	sync "sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/capabilities"
 	commoncap "github.com/smartcontractkit/chainlink-common/pkg/capabilities"
 	"github.com/smartcontractkit/chainlink-common/pkg/capabilities/pb"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -24,9 +25,9 @@ import (
 type triggerSubscriber struct {
 	config              types.RemoteTriggerConfig
 	capInfo             commoncap.CapabilityInfo
-	capDonInfo          types.DON
+	capDonInfo          capabilities.DON
 	capDonMembers       map[p2ptypes.PeerID]struct{}
-	localDonInfo        types.DON
+	localDonInfo        capabilities.DON
 	dispatcher          types.Dispatcher
 	aggregator          types.Aggregator
 	messageCache        *messageCache[triggerEventKey, p2ptypes.PeerID]
@@ -51,7 +52,7 @@ var _ commoncap.TriggerCapability = &triggerSubscriber{}
 var _ types.Receiver = &triggerSubscriber{}
 var _ services.Service = &triggerSubscriber{}
 
-func NewTriggerSubscriber(config types.RemoteTriggerConfig, capInfo commoncap.CapabilityInfo, capDonInfo types.DON, localDonInfo types.DON, dispatcher types.Dispatcher, aggregator types.Aggregator, lggr logger.Logger) *triggerSubscriber {
+func NewTriggerSubscriber(config types.RemoteTriggerConfig, capInfo commoncap.CapabilityInfo, capDonInfo capabilities.DON, localDonInfo capabilities.DON, dispatcher types.Dispatcher, aggregator types.Aggregator, lggr logger.Logger) *triggerSubscriber {
 	if aggregator == nil {
 		lggr.Warnw("no aggregator provided, using default MODE aggregator", "capabilityId", capInfo.ID)
 		aggregator = NewDefaultModeAggregator(uint32(capDonInfo.F + 1))

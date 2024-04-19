@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pelletier/go-toml"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/capabilities"
 	"github.com/smartcontractkit/chainlink-common/pkg/capabilities/mercury"
 	"github.com/smartcontractkit/chainlink-common/pkg/capabilities/triggers"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
@@ -16,6 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink/v2/core/chains/legacyevm"
 	"github.com/smartcontractkit/chainlink/v2/core/logger"
 	"github.com/smartcontractkit/chainlink/v2/core/services/job"
+	p2ptypes "github.com/smartcontractkit/chainlink/v2/core/services/p2p/types"
 	"github.com/smartcontractkit/chainlink/v2/core/services/pg"
 )
 
@@ -56,12 +58,18 @@ func (d *Delegate) ServicesForSpec(ctx context.Context, spec job.Job) ([]job.Ser
 		go mercuryEventLoop(trigger, d.logger)
 	}
 
+	dinfo, err := initializeDONInfo(d.logger)
+	if err != nil {
+		d.logger.Errorw("could not add initialize don info", err)
+	}
+
 	cfg := Config{
 		Lggr:       d.logger,
 		Spec:       spec.WorkflowSpec.Workflow,
 		WorkflowID: spec.WorkflowSpec.WorkflowID,
 		Registry:   d.registry,
-		DONInfo:    initializeDONInfo(d.logger, d.peerID),
+		DONInfo:    dinfo,
+		PeerID:     d.peerID.String(),
 	}
 	engine, err := NewEngine(cfg)
 	if err != nil {
@@ -70,7 +78,7 @@ func (d *Delegate) ServicesForSpec(ctx context.Context, spec job.Job) ([]job.Ser
 	return []job.ServiceCtx{engine}, nil
 }
 
-func initializeDONInfo(lggr logger.Logger, myPeerID string) *DONInfo {
+func initializeDONInfo(lggr logger.Logger) (*capabilities.DON, error) {
 	var key [16]byte
 
 	// TODO: fetch the key and DONInfo from the registry
@@ -81,17 +89,30 @@ func initializeDONInfo(lggr logger.Logger, myPeerID string) *DONInfo {
 	}
 	key = [16]byte(k)
 
-	donInfo := &DONInfo{
-		Peers: []string{
-			"p2p_12D3KooWF3dVeJ6YoT5HFnYhmwQWWMoEwVFzJQ5kKCMX3ZityxMC",
-			"p2p_12D3KooWQsmok6aD8PZqt3RnJhQRrNzKHLficq7zYFRp7kZ1hHP8",
-			"p2p_12D3KooWJbZLiMuGeKw78s3LM5TNgBTJHcF39DraxLu14bucG9RN",
-			"p2p_12D3KooWGqfSPhHKmQycfhRjgUDE2vg9YWZN27Eue8idb2ZUk6EH",
-		},
-		PeerID:       myPeerID,
-		SharedSecret: key,
+	p2pStrings := []string{
+		"12D3KooWF3dVeJ6YoT5HFnYhmwQWWMoEwVFzJQ5kKCMX3ZityxMC",
+		"12D3KooWQsmok6aD8PZqt3RnJhQRrNzKHLficq7zYFRp7kZ1hHP8",
+		"12D3KooWJbZLiMuGeKw78s3LM5TNgBTJHcF39DraxLu14bucG9RN",
+		"12D3KooWGqfSPhHKmQycfhRjgUDE2vg9YWZN27Eue8idb2ZUk6EH",
 	}
-	return donInfo
+
+	p2pIDs := []p2ptypes.PeerID{}
+	for _, p := range p2pStrings {
+		pid := p2ptypes.PeerID{}
+		err := pid.UnmarshalText([]byte(p))
+		if err != nil {
+			return nil, err
+		}
+
+		p2pIDs = append(p2pIDs, pid)
+	}
+
+	return &capabilities.DON{
+		Members: p2pIDs,
+		Config: capabilities.DONConfig{
+			SharedSecret: key,
+		},
+	}, nil
 }
 
 func NewDelegate(logger logger.Logger, registry types.CapabilitiesRegistry, legacyEVMChains legacyevm.LegacyChainContainer, peerID string) *Delegate {

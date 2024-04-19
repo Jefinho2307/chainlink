@@ -23,8 +23,8 @@ type triggerPublisher struct {
 	config        types.RemoteTriggerConfig
 	underlying    commoncap.TriggerCapability
 	capInfo       commoncap.CapabilityInfo
-	capDonInfo    types.DON
-	workflowDONs  map[string]types.DON
+	capDonInfo    commoncap.DON
+	workflowDONs  map[string]commoncap.DON
 	dispatcher    types.Dispatcher
 	messageCache  *messageCache[registrationKey, p2ptypes.PeerID]
 	registrations map[registrationKey]*pubRegState
@@ -47,7 +47,7 @@ type pubRegState struct {
 var _ types.Receiver = &triggerPublisher{}
 var _ services.Service = &triggerPublisher{}
 
-func NewTriggerPublisher(config types.RemoteTriggerConfig, underlying commoncap.TriggerCapability, capInfo commoncap.CapabilityInfo, capDonInfo types.DON, workflowDONs map[string]types.DON, dispatcher types.Dispatcher, lggr logger.Logger) *triggerPublisher {
+func NewTriggerPublisher(config types.RemoteTriggerConfig, underlying commoncap.TriggerCapability, capInfo commoncap.CapabilityInfo, capDonInfo commoncap.DON, workflowDONs map[string]commoncap.DON, dispatcher types.Dispatcher, lggr logger.Logger) *triggerPublisher {
 	config.ApplyDefaults()
 	return &triggerPublisher{
 		config:        config,

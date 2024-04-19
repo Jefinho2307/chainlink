@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/capabilities"
 	commoncap "github.com/smartcontractkit/chainlink-common/pkg/capabilities"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/types"
@@ -64,7 +65,7 @@ func (s *registrySyncer) Start(ctx context.Context) error {
 		"12D3KooWPv6eqJvYz7TcQWk4Y4XjZ1uQ7mUKahdDXj65ht95zH6a",
 	}
 	allPeers := make(map[ragetypes.PeerID]p2ptypes.StreamConfig)
-	addPeersToDONInfo := func(peers []string, donInfo *remotetypes.DON) error {
+	addPeersToDONInfo := func(peers []string, donInfo *capabilities.DON) error {
 		for _, peerID := range peers {
 			var p ragetypes.PeerID
 			err := p.UnmarshalText([]byte(peerID))
@@ -76,11 +77,11 @@ func (s *registrySyncer) Start(ctx context.Context) error {
 		}
 		return nil
 	}
-	workflowDonInfo := remotetypes.DON{ID: "workflowDon1"}
+	workflowDonInfo := capabilities.DON{ID: "workflowDon1"}
 	if err := addPeersToDONInfo(workflowDONPeers, &workflowDonInfo); err != nil {
 		return err
 	}
-	capabilityDonInfo := remotetypes.DON{ID: "capabilityDon1"}
+	capabilityDonInfo := capabilities.DON{ID: "capabilityDon1"}
 	if err := addPeersToDONInfo(capabilityDONPeers, &capabilityDonInfo); err != nil {
 		return err
 	}
@@ -95,6 +96,7 @@ func (s *registrySyncer) Start(ctx context.Context) error {
 		CapabilityType: commoncap.CapabilityTypeTrigger,
 		Description:    "Remote Trigger",
 		Version:        "0.0.1",
+		DON:            &capabilityDonInfo,
 	}
 	myId := s.peerWrapper.GetPeer().ID().String()
 	config := remotetypes.RemoteTriggerConfig{
@@ -117,7 +119,7 @@ func (s *registrySyncer) Start(ctx context.Context) error {
 	}
 	if slices.Contains(capabilityDONPeers, myId) {
 		s.lggr.Info("member of a capability DON - starting remote publishers")
-		workflowDONs := map[string]remotetypes.DON{
+		workflowDONs := map[string]capabilities.DON{
 			workflowDonInfo.ID: workflowDonInfo,
 		}
 		underlying := &noOpTrigger{info: triggerInfo, lggr: s.lggr}
