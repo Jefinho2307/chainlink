@@ -30,7 +30,7 @@ jobs:
 
       - name: cicd-changesets
         if: steps.changeset-added.outputs.core-changeset == 'true'
-        uses: smartcontractkit/.github/actions/cicd-changesets@6da79c7b9f14bec077df2c1ad40d53823b409d9c # cicd-changesets@0.3.3
+        uses: smartcontractkit/.github/actions/cicd-changesets@1bc7ce34fa81fffcb4a6eb0e4e12e59d94d0fc8f # cicd-changesets@0.3.3
         with:
           # general inputs
           git-user: app-token-issuer-releng[bot]
