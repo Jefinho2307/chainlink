@@ -77,6 +77,7 @@ type logBuffer struct {
 	// map of upkeep id to its queue
 	queues map[string]*upkeepLogQueue
 	// map for then number of times we have enqueued logs for a block number
+	// blockNumber -> upkeepID -> count
 	enqueuedBlocks map[int64]map[string]int
 	lock           sync.RWMutex
 }
@@ -114,7 +115,7 @@ func (b *logBuffer) Enqueue(uid *big.Int, logs ...logpoller.Log) (int, int) {
 		if blockNumbers, ok := b.enqueuedBlocks[blockNumber]; ok {
 			if count, ok := blockNumbers[uid.String()]; ok {
 				blockNumbers[uid.String()] = count + 1
-				b.lggr.Debugw("enqueuing logs again for a previously seen block for this upkeep", "blockNumber", blockNumber, "numberOfEnqueues", b.enqueuedBlocks[blockNumber], "upkeepID", uid.String())
+				b.lggr.Debugw("enqueuing logs again for a previously seen block for this upkeep", "blockNumber", blockNumber, "upkeepID", uid.String())
 			} else {
 				blockNumbers[uid.String()] = 1
 			}
