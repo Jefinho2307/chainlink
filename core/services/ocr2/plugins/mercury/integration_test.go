@@ -776,11 +776,10 @@ func TestIntegration_MercuryV3(t *testing.T) {
 			ptr("./fixtures/domain.key"),
 		},
 	}
-	integration_MercuryV3(t, tests[1].tlsCertFile, tests[1].tlsKeyFile)
 
-	// for _, tc := range tests {
-	// 	integration_MercuryV3(t, tc.tlsCertFile, tc.tlsKeyFile)
-	// }
+	for _, tc := range tests {
+		integration_MercuryV3(t, tc.tlsCertFile, tc.tlsKeyFile)
+	}
 }
 
 func integration_MercuryV3(t *testing.T, tlsCertFile *string, tlsKeyFile *string) {
@@ -859,8 +858,12 @@ func integration_MercuryV3(t *testing.T, tlsCertFile *string, tlsKeyFile *string
 	steve, backend, verifier, verifierAddress := setupBlockchain(t)
 
 	// Setup bootstrap + oracle nodes
+	tlsCertFileSetup := ""
+	if tlsCertFile != nil {
+		tlsCertFileSetup = *tlsCertFile
+	}
 	bootstrapNodePort := freeport.GetOne(t)
-	appBootstrap, bootstrapPeerID, _, bootstrapKb, observedLogs := setupNode(t, bootstrapNodePort, "bootstrap_mercury", backend, clientCSAKeys[n], *tlsCertFile)
+	appBootstrap, bootstrapPeerID, _, bootstrapKb, observedLogs := setupNode(t, bootstrapNodePort, "bootstrap_mercury", backend, clientCSAKeys[n], tlsCertFileSetup)
 	bootstrapNode := Node{App: appBootstrap, KeyBundle: bootstrapKb}
 	logObservers = append(logObservers, observedLogs)
 
@@ -871,7 +874,7 @@ func integration_MercuryV3(t *testing.T, tlsCertFile *string, tlsKeyFile *string
 	)
 	ports := freeport.GetN(t, n)
 	for i := 0; i < n; i++ {
-		app, peerID, transmitter, kb, observedLogs := setupNode(t, ports[i], fmt.Sprintf("oracle_mercury%d", i), backend, clientCSAKeys[i], *tlsCertFile)
+		app, peerID, transmitter, kb, observedLogs := setupNode(t, ports[i], fmt.Sprintf("oracle_mercury%d", i), backend, clientCSAKeys[i], tlsCertFileSetup)
 
 		nodes = append(nodes, Node{
 			app, transmitter, kb,
@@ -1168,7 +1171,7 @@ func TestIntegration_MercuryGRPC(t *testing.T) {
 
 	latestReportCtx := testutils.Context(t)
 	kv := make(map[string]string)
-	kv["peer-id"] = key.PublicKeyString()
+	kv["csa-key"] = key.PublicKeyString()
 	md := metadata.New(kv)
 	latestReportCtx = metadata.NewOutgoingContext(latestReportCtx, md)
 	resp2, err := rawClient.LatestReport(latestReportCtx, &pb.LatestReportRequest{})
