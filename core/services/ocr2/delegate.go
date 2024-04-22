@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"gopkg.in/guregu/null.v4"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/types/relayerset"
 	"github.com/smartcontractkit/libocr/commontypes"
 	libocr2 "github.com/smartcontractkit/libocr/offchainreporting2plus"
 	ocrtypes "github.com/smartcontractkit/libocr/offchainreporting2plus/types"
@@ -108,6 +110,7 @@ func (e ErrRelayNotEnabled) Error() string {
 
 type RelayGetter interface {
 	Get(id relay.ID) (loop.Relayer, error)
+	GetIdToRelayerMap() (map[relay.ID]loop.Relayer, error)
 }
 type Delegate struct {
 	db                    *sqlx.DB // legacy: prefer to use ds instead
@@ -527,6 +530,61 @@ type connProvider interface {
 	ClientConn() grpc.ClientConnInterface
 }
 
+type RelayerSetImpl struct {
+	wrappedRelayers map[types.RelayID]relayerset.Relayer
+}
+
+func NewRelayerSetImpl(relayGetter RelayGetter, externalJobID uuid.UUID, jobID int32, isNew bool) (*RelayerSetImpl, error) {
+
+	wrappedRelayers := map[types.RelayID]relayerset.Relayer{}
+
+	relayers, err := relayGetter.GetIdToRelayerMap()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get relayers: %w", err)
+	}
+
+	for id, relayer := range relayers {
+		wrappedRelayers[types.RelayID(id)] = RelayerWrapper{Relayer: relayer, ExternalJobID: externalJobID, JobID: jobID, New: isNew}
+	}
+
+	return &RelayerSetImpl{wrappedRelayers: wrappedRelayers}, nil
+}
+
+func (r *RelayerSetImpl) Get(_ context.Context, id types.RelayID) (relayerset.Relayer, error) {
+	if relayer, ok := r.wrappedRelayers[id]; ok {
+		return relayer, nil
+	} else {
+		return nil, fmt.Errorf("relayer with id %s not found", id)
+	}
+}
+
+func (r *RelayerSetImpl) GetAll(_ context.Context) (map[types.RelayID]relayerset.Relayer, error) {
+	return r.wrappedRelayers, nil
+}
+
+type RelayerWrapper struct {
+	loop.Relayer
+	ExternalJobID uuid.UUID
+	JobID         int32
+	New           bool // Whether this is a first time job add.
+
+}
+
+func (r RelayerWrapper) NewPluginProvider(rargs relayerset.RelayArgs, pargs types.PluginArgs) (types.PluginProvider, error) {
+
+	relayArgs := types.RelayArgs{
+		ExternalJobID:      r.ExternalJobID,
+		JobID:              r.JobID,
+		ContractID:         rargs.ContractID,
+		New:                r.New,
+		RelayConfig:        rargs.RelayConfig,
+		ProviderType:       rargs.ProviderType,
+		MercuryCredentials: rargs.MercuryCredentials,
+	}
+
+	return r.Relayer.NewPluginProvider(context.Background(), relayArgs, pargs)
+}
+
 func (d *Delegate) newServicesGenericPlugin(
 	ctx context.Context,
 	lggr logger.SugaredLogger,
@@ -564,6 +622,11 @@ func (d *Delegate) newServicesGenericPlugin(
 	rid, err := spec.RelayID()
 	if err != nil {
 		return nil, ErrJobSpecNoRelayer{PluginName: pCfg.PluginName, Err: err}
+	}
+
+	relayerSet, err := NewRelayerSetImpl(d.RelayGetter, jb.ExternalJobID, jb.ID, d.isNewlyCreatedJob)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create relayer set: %w", err)
 	}
 
 	relayer, err := d.RelayGetter.Get(rid)
@@ -656,7 +719,7 @@ func (d *Delegate) newServicesGenericPlugin(
 	switch pCfg.OCRVersion {
 	case 2:
 		plugin := reportingplugins.NewLOOPPService(pluginLggr, grpcOpts, cmdFn, pluginConfig, providerClientConn, pr, ta,
-			errorLog, keyValueStore)
+			errorLog, keyValueStore, relayerSet)
 		oracleArgs := libocr2.OCR2OracleArgs{
 			BinaryNetworkEndpointFactory: d.peerWrapper.Peer2,
 			V2Bootstrappers:              bootstrapPeers,
