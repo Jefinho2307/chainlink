@@ -312,15 +312,16 @@ func (p *logEventProvider) getLogsFromBuffer(latestBlock int64) []ocr2keepers.Up
 			p.lggr.Debugw("calculated iterations", "iterations", p.iterations, "upkeeps", p.bufferV1.NumOfUpkeeps(), "logLimitLow", logLimitLow, "maxResults", maxResults)
 		}
 
-		p.lggr.Debugw("dequeuing logs", "iterations", p.iterations, "currentIteration", p.currentIteration)
-
 		currentIteration := p.currentIteration % p.iterations
 
-		upkeepSelectorFn := func(id *big.Int) bool {
-			return id.Int64()%int64(p.iterations) == int64(currentIteration)
-		}
-
 		for len(payloads) < maxResults && start <= latestBlock {
+
+			upkeepSelectorFn := func(id *big.Int) bool {
+				return id.Int64()%int64(p.iterations) == int64(currentIteration)
+			}
+
+			p.lggr.Debugw("dequeuing logs", "iterations", p.iterations, "currentIteration", p.currentIteration)
+
 			logs, remaining := p.bufferV1.Dequeue(windowStart, windowEnd, logLimitLow, maxResults-len(payloads), upkeepSelectorFn)
 			if len(logs) > 0 {
 				p.lggr.Debugw("Dequeued logs", "start", start, "latestBlock", latestBlock, "logs", len(logs))
@@ -337,6 +338,8 @@ func (p *logEventProvider) getLogsFromBuffer(latestBlock int64) []ocr2keepers.Up
 				continue
 			}
 			start += int64(blockRate)
+			p.currentIteration = 0
+			currentIteration = p.currentIteration % p.iterations
 		}
 
 		if p.currentIteration < p.iterations {
