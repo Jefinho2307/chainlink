@@ -339,7 +339,13 @@ func (p *logEventProvider) getLogsFromBuffer(latestBlock int64) []ocr2keepers.Up
 			}
 			start += int64(blockRate)
 			p.currentIteration = 0
+			p.iterations = int(math.Ceil(float64(p.bufferV1.NumOfUpkeeps()*logLimitLow) / float64(maxResults)))
+			if p.iterations == 0 {
+				p.iterations = 1
+			}
+			p.lggr.Debugw("calculated iterations", "iterations", p.iterations, "upkeeps", p.bufferV1.NumOfUpkeeps(), "logLimitLow", logLimitLow, "maxResults", maxResults)
 			currentIteration = p.currentIteration % p.iterations
+
 		}
 
 		if p.currentIteration < p.iterations {
