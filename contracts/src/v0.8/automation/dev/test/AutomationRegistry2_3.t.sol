@@ -862,6 +862,14 @@ contract NOPsSettlement is SetUp {
       payments[i] = balance;
     }
 
+    // the reserve amount of LINK before the offchain settlement
+    uint256 prevReserveBalances = registry.getReserveAmount(address(linkToken));
+    // the total amount of payments to be settled
+    uint256 totalPayments = 0;
+    for (uint256 i = 0; i < payments.length; i++) {
+      totalPayments += payments[i];
+    }
+
     // verify offchain settlement will emit NOPs' balances
     vm.startPrank(FINANCE_ADMIN);
     vm.expectEmit();
@@ -875,6 +883,9 @@ contract NOPsSettlement is SetUp {
       assertEq(i, index);
       assertEq(0, balance);
     }
+
+    // assert reserve amount of LINK is reduced by the offchain settlement amount
+    assertEq(registry.getReserveAmount(address(linkToken)), prevReserveBalances - totalPayments);
   }
 
   function testSettleNOPsOffchainForDeactivatedTransmittersSuccess() public {
@@ -920,6 +931,14 @@ contract NOPsSettlement is SetUp {
       assertTrue(lastCollected > 0);
       expectedPayments[2 + i] = balance;
       expectedPayees[2 + i] = payee;
+    }
+
+    // the reserve amount of LINK before the offchain settlement
+    uint256 prevReserveBalances = registry.getReserveAmount(address(linkToken));
+    // the total amount of payments to be settled
+    uint256 totalPayments = 0;
+    for (uint256 i = 0; i < expectedPayments.length; i++) {
+      totalPayments += expectedPayments[i];
     }
 
     // verify offchain settlement will emit NOPs' balances
@@ -970,6 +989,9 @@ contract NOPsSettlement is SetUp {
       assertEq(i, index);
       assertEq(0, balance);
     }
+
+    // verify that reserve amount of LINK is reduced by the offchain settlement amount (both active and deactivated transmitters)
+    assertEq(registry.getReserveAmount(address(linkToken)), prevReserveBalances - totalPayments);
   }
 
   function testDisableOffchainPaymentsRevertDueToUnauthorizedCaller() public {
